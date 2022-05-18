@@ -113,6 +113,11 @@ where
             .map_err(MysqlAggregateError::from)?;
         Ok(())
     }
+
+    async fn update_views(&self, views: Vec<(V, ViewContext)>) -> Result<(), PersistenceError> {
+        // println!("--- Updates views:\n{:?}\n", views);
+        Ok(())
+    }
 }
 
 #[cfg(test)]

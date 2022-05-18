@@ -29,13 +29,31 @@ pub(crate) mod tests {
 
         async fn handle(
             &self,
-            _command: Self::Command,
+            command: Self::Command,
             _services: &Self::Services,
         ) -> Result<Vec<Self::Event>, Self::Error> {
-            Ok(vec![])
+            Ok(match command {
+                TestCommand::Create { id } => vec![TestEvent::Created(Created { id })],
+                TestCommand::Test { test_name } => vec![TestEvent::Tested(Tested { test_name })],
+                TestCommand::SomethingElse { description } => {
+                    vec![TestEvent::SomethingElse(SomethingElse { description })]
+                }
+            })
         }
 
-        fn apply(&mut self, _e: Self::Event) {}
+        fn apply(&mut self, event: Self::Event) {
+            match event {
+                TestEvent::Created(Created { id }) => {
+                    self.id = id;
+                }
+                TestEvent::Tested(Tested { test_name }) => {
+                    self.tests.push(test_name);
+                }
+                TestEvent::SomethingElse(SomethingElse { description }) => {
+                    self.description = description;
+                }
+            }
+        }
     }
 
     impl Default for TestAggregate {
@@ -97,7 +115,11 @@ pub(crate) mod tests {
 
     impl std::error::Error for TestError {}
 
-    pub enum TestCommand {}
+    pub enum TestCommand {
+        Create { id: String },
+        Test { test_name: String },
+        SomethingElse { description: String },
+    }
 
     pub(crate) type TestQueryRepository =
         GenericQuery<MysqlViewRepository<TestView, TestAggregate>, TestView, TestAggregate>;
@@ -114,7 +136,8 @@ pub(crate) mod tests {
     }
 
     pub(crate) const TEST_CONNECTION_STRING: &str =
-        "mysql://test_user:test_pass@127.0.0.1:3306/test";
+        // "mysql://test_user:test_pass@127.0.0.1:3306/test";
+        "mysql://root:admin@localhost:3306/premier";
 
     pub(crate) fn test_event_envelope(
         id: &str,

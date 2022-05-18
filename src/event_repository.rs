@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use cqrs_es::persist::{
     PersistedEventRepository, PersistenceError, SerializedEvent, SerializedSnapshot,
@@ -15,13 +17,22 @@ const DEFAULT_SNAPSHOT_TABLE: &str = "snapshots";
 
 /// A snapshot backed event repository for use in backing a `PersistedSnapshotStore`.
 pub struct MysqlEventRepository {
-    pool: Pool<MySql>,
-    event_table: String,
-    insert_event: String,
-    select_events: String,
-    insert_snapshot: String,
-    update_snapshot: String,
-    select_snapshot: String,
+    ///
+    pub pool: Pool<MySql>,
+    ///
+    pub event_table: String,
+    ///
+    pub insert_event: String,
+    ///
+    pub select_events: String,
+    ///
+    pub insert_snapshot: String,
+    ///
+    pub update_snapshot: String,
+    ///
+    pub select_snapshot: String,
+    ///
+    pub select_last_events: Box<dyn Fn(&str, usize) -> String + Send + Sync>,
 }
 
 #[async_trait]
@@ -39,14 +50,7 @@ impl PersistedEventRepository for MysqlEventRepository {
         aggregate_id: &str,
         last_sequence: usize,
     ) -> Result<Vec<SerializedEvent>, PersistenceError> {
-        let query = format!(
-            "SELECT aggregate_type, aggregate_id, sequence, event_type, event_version, payload, metadata
-                                FROM {}
-                                WHERE aggregate_type = ? AND aggregate_id = ?
-                                  AND sequence > {}
-                                ORDER BY sequence",
-            &self.event_table, last_sequence
-        );
+        let query = (self.select_last_events)(&self.event_table, last_sequence);
         self.select_events::<A>(aggregate_id, &query).await
         // let mut rows = sqlx::query(&query)
         //     .bind(A::aggregate_type())
@@ -59,6 +63,13 @@ impl PersistedEventRepository for MysqlEventRepository {
         //     result.push(self.deser_event(row)?);
         // }
         // Ok(result)
+    }
+
+    async fn get_multiple_aggregate_events<A: Aggregate>(
+        &self,
+        aggregate_ids: Vec<&str>,
+    ) -> Result<HashMap<String, Vec<SerializedEvent>>, PersistenceError> {
+        todo!()
     }
 
     async fn get_snapshot<A: Aggregate>(
@@ -171,6 +182,14 @@ impl MysqlEventRepository {
             select_snapshot: format!("SELECT aggregate_type, aggregate_id, last_sequence, current_snapshot, payload
                                         FROM {}
                                         WHERE aggregate_type = ? AND aggregate_id = ?", snapshots_table),
+            select_last_events: Box::new(|events_table: &str, sequence: usize| {
+                            format!("SELECT aggregate_type, aggregate_id, sequence, event_type, event_version, payload, metadata
+                                        FROM {}
+                                        WHERE aggregate_type = ?
+                                            AND aggregate_id = ?
+                                            AND sequence > {}
+                                        ORDER BY sequence", events_table, sequence)
+            }),
         }
     }
 
@@ -311,7 +330,8 @@ mod test {
     async fn event_repositories() {
         let pool = default_mysql_pool(TEST_CONNECTION_STRING).await;
         let id = uuid::Uuid::new_v4().to_string();
-        let event_repo = MysqlEventRepository::new(pool.clone());
+        let event_repo =
+            MysqlEventRepository::new(pool.clone()).with_tables("test_event", "test_snapshot");
         let events = event_repo.get_events::<TestAggregate>(&id).await.unwrap();
         assert!(events.is_empty());
 
@@ -364,7 +384,8 @@ mod test {
     async fn snapshot_repositories() {
         let pool = default_mysql_pool(TEST_CONNECTION_STRING).await;
         let id = uuid::Uuid::new_v4().to_string();
-        let repo = MysqlEventRepository::new(pool.clone());
+        let repo =
+            MysqlEventRepository::new(pool.clone()).with_tables("test_event", "test_snapshot");
         let snapshot = repo.get_snapshot::<TestAggregate>(&id).await.unwrap();
         assert_eq!(None, snapshot);
 
