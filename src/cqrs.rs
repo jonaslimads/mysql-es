@@ -87,7 +87,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn view_payload_gets_incompatible_if_read_model_changes_without_replay() {
+    async fn view_payload_gets_compatible_upon_upcast_right_fields() {
         let (cqrs, repo, pool) = instantiate_cqrs_pool_repo().await;
 
         let id = uuid::Uuid::new_v4().to_string();
@@ -103,6 +103,42 @@ mod test {
         sqlx::query(
             "UPDATE test_view SET
                 payload = JSON_SET(payload, '$.old_events', payload->'$.events'),
+                payload = JSON_REMOVE(payload, '$.events')
+            WHERE view_id = ?",
+        )
+        .bind(id.clone())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let test_command = TestCommand::Test {
+            test_name: "event replay".to_string(),
+        };
+        cqrs.execute(id.clone().as_str(), test_command)
+            .await
+            .unwrap();
+        let result = repo.load_with_context(&id).await;
+        let (_, view_context) = result.unwrap().unwrap();
+        assert_eq!(2, view_context.version);
+    }
+
+    #[tokio::test]
+    async fn view_payload_gets_incompatible_if_read_model_does_not_upcast_right_fields() {
+        let (cqrs, repo, pool) = instantiate_cqrs_pool_repo().await;
+
+        let id = uuid::Uuid::new_v4().to_string();
+
+        let create_command = TestCommand::Create { id: id.clone() };
+        cqrs.execute(id.clone().as_str(), create_command)
+            .await
+            .unwrap();
+        let (_, view_context) = repo.load_with_context(&id).await.unwrap().unwrap();
+        assert_eq!(1, view_context.version);
+
+        // force incompatibility by directly updating previous view payload
+        sqlx::query(
+            "UPDATE test_view SET
+                payload = JSON_SET(payload, '$.no_upcasted_field', payload->'$.events'),
                 payload = JSON_REMOVE(payload, '$.events')
             WHERE view_id = ?",
         )

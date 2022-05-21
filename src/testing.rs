@@ -133,6 +133,18 @@ pub(crate) mod tests {
         fn update(&mut self, event: &EventEnvelope<TestAggregate>) {
             self.events.push(event.payload.clone());
         }
+
+        fn upcast(payload: &mut Value) {
+            match payload {
+                Value::Object(object) => {
+                    let cloned_object = object.clone();
+                    if let Some(old_events) = cloned_object.get("old_events") {
+                        object.insert("events".to_string(), old_events.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
     pub(crate) const TEST_CONNECTION_STRING: &str =

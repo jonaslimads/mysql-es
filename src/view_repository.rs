@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use async_trait::async_trait;
 use cqrs_es::persist::{PersistenceError, ViewContext, ViewRepository};
 use cqrs_es::{Aggregate, View};
+use serde_json::Value;
 use sqlx::mysql::MySqlRow;
 use sqlx::{MySql, Pool, Row};
 
@@ -54,6 +55,17 @@ where
             _phantom: Default::default(),
         }
     }
+
+    fn deserialize_view_payload(mut payload: Value) -> serde_json::Result<V> {
+        let view = match serde_json::from_value(payload.clone()) {
+            Err(_) => {
+                V::upcast(&mut payload);
+                serde_json::from_value(payload)?
+            }
+            Ok(view) => view,
+        };
+        Ok(view)
+    }
 }
 
 #[async_trait]
@@ -71,7 +83,7 @@ where
         match row {
             None => Ok(None),
             Some(row) => {
-                let view = serde_json::from_value(row.get("payload"))?;
+                let view = MysqlViewRepository::deserialize_view_payload(row.get("payload"))?;
                 Ok(Some(view))
             }
         }
@@ -90,8 +102,8 @@ where
             None => Ok(None),
             Some(row) => {
                 let version = row.get("version");
-                let view = serde_json::from_value(row.get("payload"))?;
                 let view_context = ViewContext::new(view_id.to_string(), version);
+                let view = MysqlViewRepository::deserialize_view_payload(row.get("payload"))?;
                 Ok(Some((view, view_context)))
             }
         }
