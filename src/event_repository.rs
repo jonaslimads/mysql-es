@@ -8,7 +8,7 @@ use cqrs_es::Aggregate;
 use futures::TryStreamExt;
 use serde_json::Value;
 use sqlx::mysql::MySqlRow;
-use sqlx::{Execute, MySql, Pool, QueryBuilder, Row, Transaction};
+use sqlx::{MySql, Pool, QueryBuilder, Row, Transaction};
 
 use crate::error::MysqlAggregateError;
 
@@ -27,6 +27,8 @@ pub struct MysqlEventRepository {
     pub select_events: String,
     ///
     pub select_last_events: String,
+    ///
+    pub select_all_aggregate_events: String,
     ///
     pub select_multiple_aggregate_events: String,
     ///
@@ -58,13 +60,15 @@ impl PersistedEventRepository for MysqlEventRepository {
 
     async fn get_multiple_aggregate_events<A: Aggregate>(
         &self,
-        aggregate_ids: Vec<&str>,
+        _aggregate_ids: Vec<&str>,
     ) -> Result<HashMap<String, Vec<SerializedEvent>>, PersistenceError> {
-        self.select_multiple_aggregate_events::<A>(
-            aggregate_ids,
-            &self.select_multiple_aggregate_events,
-        )
-        .await
+        self.select_all_aggregate_events::<A>(&self.select_all_aggregate_events)
+            .await
+        // self.select_multiple_aggregate_events::<A>(
+        //     aggregate_ids,
+        //     &self.select_multiple_aggregate_events,
+        // )
+        // .await
     }
 
     async fn get_snapshot<A: Aggregate>(
@@ -141,6 +145,26 @@ impl MysqlEventRepository {
         while let Some(row) = rows.try_next().await.map_err(MysqlAggregateError::from)? {
             result.push(self.deser_event(row)?);
         }
+        Ok(result)
+    }
+
+    async fn select_all_aggregate_events<A: Aggregate>(
+        &self,
+        query: &str,
+    ) -> Result<HashMap<String, Vec<SerializedEvent>>, PersistenceError> {
+        let mut rows = sqlx::query(query)
+            .bind(A::aggregate_type())
+            .fetch(&self.pool);
+        let mut result: HashMap<String, Vec<SerializedEvent>> = HashMap::new();
+        while let Some(row) = rows.try_next().await.map_err(MysqlAggregateError::from)? {
+            let event = self.deser_event(row)?;
+            if let Some(events) = result.get_mut(&event.aggregate_id) {
+                events.push(event);
+            } else {
+                result.insert(event.aggregate_id.clone(), vec![event]);
+            }
+        }
+
         Ok(result)
     }
 
@@ -239,6 +263,11 @@ impl MysqlEventRepository {
                                             AND aggregate_id = ?
                                             AND sequence > ?
                                         ORDER BY sequence", events_table),
+            select_all_aggregate_events:
+                format!("SELECT aggregate_type, aggregate_id, sequence, event_type, event_version, payload, metadata
+                        FROM {}
+                        WHERE aggregate_type = ?
+                        ORDER BY aggregate_id, sequence", events_table),
             select_multiple_aggregate_events: format!("SELECT aggregate_type, aggregate_id, sequence, event_type, event_version, payload, metadata
                                                         FROM {}
                                                         WHERE aggregate_type = ?

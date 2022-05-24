@@ -110,11 +110,18 @@ where
     }
 
     async fn update_view(&self, view: V, context: ViewContext) -> Result<(), PersistenceError> {
-        let sql = match context.version {
-            0 => &self.insert_sql,
-            _ => &self.update_sql,
+        // todo: temporary
+        let (sql, increment) = match context.version {
+            -1 => (&self.update_sql, 2),
+            0 => (&self.insert_sql, 1),
+            _ => (&self.update_sql, 1),
         };
-        let version = context.version + 1;
+        let version = context.version + increment;
+        // let sql = match context.version {
+        //     0 => &self.insert_sql,
+        //     _ => &self.update_sql,
+        // };
+        // let version = context.version + 1;
         let payload = serde_json::to_value(&view).map_err(MysqlAggregateError::from)?;
         sqlx::query(sql.as_str())
             .bind(payload)
@@ -126,6 +133,7 @@ where
         Ok(())
     }
 
+    // TODO: use transaction
     async fn update_views(&self, views: Vec<(V, ViewContext)>) -> Result<(), PersistenceError> {
         // println!("--- Updates views:\n{:?}\n", views);
         Ok(())

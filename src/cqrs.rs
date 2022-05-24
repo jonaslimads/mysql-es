@@ -73,6 +73,7 @@ mod test {
     use std::sync::Arc;
 
     use cqrs_es::persist::ViewRepository;
+    use cqrs_es::TrackingEventProcessor;
     use sqlx::MySqlPool;
 
     use crate::testing::tests::{
@@ -157,6 +158,34 @@ mod test {
         assert_eq!(true, result.is_err());
     }
 
+    #[tokio::test]
+    async fn replay_events() {
+        let (cqrs, repo, pool) = instantiate_cqrs_pool_repo_with_replay().await;
+
+        let id = uuid::Uuid::new_v4().to_string();
+
+        let create_command = TestCommand::Create { id: id.clone() };
+        cqrs.execute(id.clone().as_str(), create_command)
+            .await
+            .unwrap();
+
+        // force incompatibility by directly updating previous view payload
+        sqlx::query(
+            "UPDATE test_view SET
+                payload = JSON_SET(payload, '$.old_events', payload->'$.events'),
+                payload = JSON_REMOVE(payload, '$.events')
+            WHERE view_id = ?",
+        )
+        .bind(id.clone())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // TODO payload it is storing two events after replaying, it should be only one
+        let result = cqrs.replay(id.as_str()).await;
+        println!("{:?}", result);
+    }
+
     async fn instantiate_cqrs_pool_repo() -> (
         MysqlCqrs<TestAggregate>,
         Arc<MysqlViewRepository<TestView, TestAggregate>>,
@@ -169,6 +198,20 @@ mod test {
         ));
         let query = TestQueryRepository::new(repo.clone());
         let cqrs = mysql_cqrs(pool.clone(), vec![Box::new(query)], TestServices);
+        (cqrs, repo, pool)
+    }
+
+    async fn instantiate_cqrs_pool_repo_with_replay() -> (
+        MysqlCqrs<TestAggregate>,
+        Arc<MysqlViewRepository<TestView, TestAggregate>>,
+        MySqlPool,
+    ) {
+        let (cqrs, repo, pool) = instantiate_cqrs_pool_repo().await;
+        let query = TestQueryRepository::new(repo.clone());
+        let tracking_event_processor = TrackingEventProcessor {
+            queries: vec![Box::new(query)],
+        };
+        let cqrs = cqrs.with_tracking_event_processor(tracking_event_processor);
         (cqrs, repo, pool)
     }
 }
