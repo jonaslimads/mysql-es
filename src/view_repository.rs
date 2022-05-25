@@ -14,6 +14,7 @@ pub struct MysqlViewRepository<V, A> {
     insert_sql: String,
     update_sql: String,
     select_sql: String,
+    delete_sql: String,
     pool: Pool<MySql>,
     _phantom: PhantomData<(V, A)>,
 }
@@ -47,10 +48,12 @@ where
             view_name
         );
         let select_sql = format!("SELECT version,payload FROM {} WHERE view_id= ?", view_name);
+        let delete_sql = format!("DELETE FROM {} WHERE view_id = ?", view_name);
         Self {
             insert_sql,
             update_sql,
             select_sql,
+            delete_sql,
             pool,
             _phantom: Default::default(),
         }
@@ -110,18 +113,11 @@ where
     }
 
     async fn update_view(&self, view: V, context: ViewContext) -> Result<(), PersistenceError> {
-        // todo: temporary
-        let (sql, increment) = match context.version {
-            -1 => (&self.update_sql, 2),
-            0 => (&self.insert_sql, 1),
-            _ => (&self.update_sql, 1),
+        let sql = match context.version {
+            0 => &self.insert_sql,
+            _ => &self.update_sql,
         };
-        let version = context.version + increment;
-        // let sql = match context.version {
-        //     0 => &self.insert_sql,
-        //     _ => &self.update_sql,
-        // };
-        // let version = context.version + 1;
+        let version = context.version + 1;
         let payload = serde_json::to_value(&view).map_err(MysqlAggregateError::from)?;
         sqlx::query(sql.as_str())
             .bind(payload)
@@ -133,11 +129,20 @@ where
         Ok(())
     }
 
-    // TODO: use transaction
-    async fn update_views(&self, views: Vec<(V, ViewContext)>) -> Result<(), PersistenceError> {
-        // println!("--- Updates views:\n{:?}\n", views);
+    async fn delete_view(&self, view_id: &str) -> Result<(), PersistenceError> {
+        sqlx::query(&self.delete_sql.as_str())
+            .bind(&view_id)
+            .execute(&self.pool)
+            .await
+            .map_err(MysqlAggregateError::from)?;
         Ok(())
     }
+
+    // // TODO: use transaction
+    // async fn update_views(&self, views: Vec<(V, ViewContext)>) -> Result<(), PersistenceError> {
+    //     // println!("--- Updates views:\n{:?}\n", views);
+    //     Ok(())
+    // }
 }
 
 #[cfg(test)]

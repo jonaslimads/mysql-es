@@ -90,6 +90,7 @@ mod test {
     #[tokio::test]
     async fn view_payload_gets_compatible_upon_upcast_right_fields() {
         let (cqrs, repo, pool) = instantiate_cqrs_pool_repo().await;
+        cleanup_db(pool.clone()).await;
 
         let id = uuid::Uuid::new_v4().to_string();
 
@@ -126,6 +127,7 @@ mod test {
     #[tokio::test]
     async fn view_payload_gets_incompatible_if_read_model_does_not_upcast_right_fields() {
         let (cqrs, repo, pool) = instantiate_cqrs_pool_repo().await;
+        cleanup_db(pool.clone()).await;
 
         let id = uuid::Uuid::new_v4().to_string();
 
@@ -160,7 +162,8 @@ mod test {
 
     #[tokio::test]
     async fn replay_events() {
-        let (cqrs, repo, pool) = instantiate_cqrs_pool_repo_with_replay().await;
+        let (cqrs, _repo, pool) = instantiate_cqrs_pool_repo_with_replay().await;
+        cleanup_db(pool.clone()).await;
 
         let id = uuid::Uuid::new_v4().to_string();
 
@@ -181,8 +184,8 @@ mod test {
         .await
         .unwrap();
 
-        // TODO payload it is storing two events after replaying, it should be only one
-        let result = cqrs.replay(id.as_str()).await;
+        // FIXME payload is storing two events after replaying, it should be only one
+        let result = cqrs.replay().await;
         println!("{:?}", result);
     }
 
@@ -213,5 +216,20 @@ mod test {
         };
         let cqrs = cqrs.with_tracking_event_processor(tracking_event_processor);
         (cqrs, repo, pool)
+    }
+
+    async fn cleanup_db(pool: MySqlPool) {
+        sqlx::query("TRUNCATE TABLE events")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("TRUNCATE TABLE snapshots")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("TRUNCATE TABLE test_view")
+            .execute(&pool)
+            .await
+            .unwrap();
     }
 }
