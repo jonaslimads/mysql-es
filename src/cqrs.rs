@@ -211,9 +211,7 @@ mod test {
     ) {
         let (cqrs, repo, pool) = instantiate_cqrs_pool_repo().await;
         let query = TestQueryRepository::new(repo.clone());
-        let tracking_event_processor = TrackingEventProcessor {
-            queries: vec![Box::new(query)],
-        };
+        let tracking_event_processor = TrackingEventProcessor::new(vec![Box::new(query)]);
         let cqrs = cqrs.with_tracking_event_processor(tracking_event_processor);
         (cqrs, repo, pool)
     }
