@@ -11,7 +11,7 @@ documentation = "https://docs.rs/mysql-es"
 readme = "README.md"
 
 [dependencies]
-cqrs-es = "0.4.3"
+cqrs-es = {path = "../cqrs"}
 
 async-trait = "0.1.53"
 futures = "0.3.21"

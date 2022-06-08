@@ -11,6 +11,7 @@ pub use crate::event_repository::*;
 pub use crate::event_repository::*;
 pub use crate::types::*;
 pub use crate::view_repository::*;
+pub use crate::sql_query::*;
 
 mod cqrs;
 mod error;

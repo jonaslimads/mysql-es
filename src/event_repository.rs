@@ -40,8 +40,9 @@ impl PersistedEventRepository for MysqlEventRepository {
         aggregate_id: &str,
         last_sequence: usize,
     ) -> Result<Vec<SerializedEvent>, PersistenceError> {
-        let query = self.query_factory.get_last_events(last_sequence);
-        self.select_events::<A>(aggregate_id, &query).await
+        let query = self.query_factory.last_events();
+        self.select_last_events::<A>(aggregate_id, last_sequence, &query)
+            .await
     }
 
     async fn get_snapshot<A: Aggregate>(
@@ -170,6 +171,24 @@ impl MysqlEventRepository {
         }
         Ok(result)
     }
+
+    async fn select_last_events<A: Aggregate>(
+        &self,
+        aggregate_id: &str,
+        sequence: usize,
+        query: &str,
+    ) -> Result<Vec<SerializedEvent>, PersistenceError> {
+        let mut rows = sqlx::query(query)
+            .bind(A::aggregate_type())
+            .bind(aggregate_id)
+            .bind(sequence as u32)
+            .fetch(&self.pool);
+        let mut result: Vec<SerializedEvent> = Default::default();
+        while let Some(row) = rows.try_next().await.map_err(MysqlAggregateError::from)? {
+            result.push(MysqlEventRepository::deser_event(row)?);
+        }
+        Ok(result)
+    }
 }
 
 impl MysqlEventRepository {
@@ -209,6 +228,15 @@ impl MysqlEventRepository {
             stream_channel_size,
         }
     }
+    ///
+    pub fn with_query_factory(self, query_factory: SqlQueryFactory) -> Self {
+        Self {
+            pool: self.pool,
+            query_factory,
+            stream_channel_size: self.stream_channel_size,
+        }
+    }
+
     /// Configures a `MysqlEventRepository` to use the provided table names.
     ///
     /// _Example: configure the repository to use "my_event_table" and "my_snapshot_table"
@@ -253,14 +281,24 @@ impl MysqlEventRepository {
     ) -> Result<(), MysqlAggregateError> {
         let mut tx: Transaction<MySql> = sqlx::Acquire::begin(&self.pool).await?;
         let current_sequence = self.persist_events::<A>(&mut tx, events).await?;
-        sqlx::query(self.query_factory.insert_snapshot())
-            .bind(A::aggregate_type())
-            .bind(aggregate_id.as_str())
-            .bind(current_sequence as u32)
-            .bind(current_snapshot as u32)
-            .bind(&aggregate_payload)
-            .execute(&mut tx)
-            .await?;
+        if A::aggregate_type() == "" {
+            sqlx::query(self.query_factory.insert_snapshot())
+                .bind(A::aggregate_type())
+                .bind(aggregate_id.as_str())
+                .bind(current_sequence as u32)
+                .bind(current_snapshot as u32)
+                .bind(&aggregate_payload)
+                .execute(&mut tx)
+                .await?;
+        } else {
+            sqlx::query(self.query_factory.insert_snapshot())
+                .bind(aggregate_id.as_str())
+                .bind(current_sequence as u32)
+                .bind(current_snapshot as u32)
+                .bind(&aggregate_payload)
+                .execute(&mut tx)
+                .await?;
+        }
         tx.commit().await?;
         Ok(())
     }
@@ -341,16 +379,28 @@ impl MysqlEventRepository {
             let event_version = &event.event_version;
             let payload = serde_json::to_value(&event.payload)?;
             let metadata = serde_json::to_value(&event.metadata)?;
-            sqlx::query(self.query_factory.insert_event())
-                .bind(A::aggregate_type())
-                .bind(event.aggregate_id.as_str())
-                .bind(event.sequence as u32)
-                .bind(event_type)
-                .bind(event_version)
-                .bind(&payload)
-                .bind(&metadata)
-                .execute(&mut *tx)
-                .await?;
+            if A::aggregate_type() == "" {
+                sqlx::query(self.query_factory.insert_event())
+                    .bind(event.aggregate_id.as_str())
+                    .bind(event.sequence as u32)
+                    .bind(event_type)
+                    .bind(event_version)
+                    .bind(&payload)
+                    .bind(&metadata)
+                    .execute(&mut *tx)
+                    .await?;
+            } else {
+                sqlx::query(self.query_factory.insert_event())
+                    .bind(A::aggregate_type())
+                    .bind(event.aggregate_id.as_str())
+                    .bind(event.sequence as u32)
+                    .bind(event_type)
+                    .bind(event_version)
+                    .bind(&payload)
+                    .bind(&metadata)
+                    .execute(&mut *tx)
+                    .await?;
+            }
         }
         Ok(current_sequence)
     }
