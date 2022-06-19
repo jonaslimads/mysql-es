@@ -281,7 +281,7 @@ impl MysqlEventRepository {
     ) -> Result<(), MysqlAggregateError> {
         let mut tx: Transaction<MySql> = sqlx::Acquire::begin(&self.pool).await?;
         let current_sequence = self.persist_events::<A>(&mut tx, events).await?;
-        if A::aggregate_type() == "" {
+        if A::aggregate_type() != "" {
             sqlx::query(self.query_factory.insert_snapshot())
                 .bind(A::aggregate_type())
                 .bind(aggregate_id.as_str())
@@ -379,8 +379,9 @@ impl MysqlEventRepository {
             let event_version = &event.event_version;
             let payload = serde_json::to_value(&event.payload)?;
             let metadata = serde_json::to_value(&event.metadata)?;
-            if A::aggregate_type() == "" {
+            if A::aggregate_type() != "" {
                 sqlx::query(self.query_factory.insert_event())
+                    .bind(A::aggregate_type())
                     .bind(event.aggregate_id.as_str())
                     .bind(event.sequence as u32)
                     .bind(event_type)
@@ -391,7 +392,6 @@ impl MysqlEventRepository {
                     .await?;
             } else {
                 sqlx::query(self.query_factory.insert_event())
-                    .bind(A::aggregate_type())
                     .bind(event.aggregate_id.as_str())
                     .bind(event.sequence as u32)
                     .bind(event_type)
