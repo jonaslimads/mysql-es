@@ -5,10 +5,15 @@ use cqrs_es::AggregateError;
 use sqlx::Error;
 
 #[derive(Debug)]
+///
 pub enum MysqlAggregateError {
+    ///
     OptimisticLock,
+    ///
     ConnectionError(Box<dyn std::error::Error + Send + Sync + 'static>),
+    ///
     DeserializationError(Box<dyn std::error::Error + Send + Sync + 'static>),
+    ///
     UnknownError(Box<dyn std::error::Error + Send + Sync + 'static>),
 }
 

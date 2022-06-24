@@ -13,7 +13,10 @@ pub struct MysqlViewRepository<V, A> {
     insert_sql: String,
     update_sql: String,
     select_sql: String,
-    pool: Pool<MySql>,
+    /// View name that may be used for custom queries
+    pub view_name: String,
+    /// Connection pool
+    pub pool: Pool<MySql>,
     _phantom: PhantomData<(V, A)>,
 }
 
@@ -50,6 +53,7 @@ where
             insert_sql,
             update_sql,
             select_sql,
+            view_name: view_name.to_string(),
             pool,
             _phantom: Default::default(),
         }

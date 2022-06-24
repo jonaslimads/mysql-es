@@ -7,11 +7,12 @@
 //! > A MySql implementation of the `EventStore` trait in [cqrs-es](https://crates.io/crates/cqrs-es).
 //!
 pub use crate::cqrs::*;
+pub use crate::error::*;
 pub use crate::event_repository::*;
 pub use crate::event_repository::*;
+pub use crate::sql_query::*;
 pub use crate::types::*;
 pub use crate::view_repository::*;
-pub use crate::sql_query::*;
 
 mod cqrs;
 mod error;
